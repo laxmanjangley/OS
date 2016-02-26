@@ -30,7 +30,7 @@
  **********************************************************************/
 
 #define SECTSIZE	512
-#define ELFHDR		((struct Elf *) 0x10000) // scratch space
+#define ELFHDR		((struct Elf *) 0x10000) // scratch space *the kernel is expected to be found here*
 
 void readsect(void*, uint32_t);
 void readseg(uint32_t, uint32_t, uint32_t);
