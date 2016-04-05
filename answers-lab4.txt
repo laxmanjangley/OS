@@ -1,0 +1,28 @@
+1.	Compare kern/mpentry.S side by side with boot/boot.S. Bearing in mind that kern/mpentry.S is compiled and linked to run above KERNBASE just like everything else in the kernel, what is the purpose of macro MPBOOTPHYS? Why is it necessary in kern/mpentry.S but not in boot/boot.S? In other words, what could go wrong if it were omitted in kern/mpentry.S?
+
+Answer. kern/mpentry.S is linked to run above KERNBASE, but the code is loaded below KERNBASE at MPENTRY_PADDR.  Thus, it's necessary to translate addresses to the load location, which is dynamically determined at run-time.  MPBOOTPHYS takes an address and translates it from an offset from mpentry_start (a variable set before the code is run) to an offset into MPENTRY_PADDR.  boot/boot.S doesn't need such a translation because, although the kernel is linked at KERNBASE and loaded at 0, 0 and KERNBASE are mapped to the same physical locations in the page table, so paging takes care of the mismatch.
+
+
+
+2. 	It seems that using the big kernel lock guarantees that only one CPU can run the kernel code at a time. Why do we still need separate kernel stacks for each CPU? Describe a scenario in which using a shared kernel stack will go wrong, even with the protection of the big kernel lock.
+
+Answer. While entering the kernel mode a process pushes the trapframe onto the stack and upon returning from the kernel mode it pops its trapframe off the stack. Because sometimes the kernel stack should save some values on the stack before acquiring the kernel lock. There are some instructions before acquiring the kernel lock but in kernel mode. If every cpu sharing one stack,these instructions could be messy. If there were a shared kernel stack, then multiple processes could push trap frames to the stack and yield, which would let other processes pop the wrong trap frames off the stack when going back to user mode.
+
+
+
+3.	In your implementation of env_run() you should have called lcr3(). Before and after the call to lcr3(), your code makes references (at least it should) to the variable e, the argument to env_run. Upon loading the %cr3 register, the addressing context used by the MMU is instantly changed. But a virtual address (namely e) has meaning relative to a given address context--the address context specifies the physical address to which the virtual address maps. Why can the pointer e be dereferenced both before and after the addressing switch?
+
+Answer. 'e' is a pointer allocated on the current processor's kernel stack.  This kernel stack does not change memory locations upon the call to lcr3(). Thus, the variable can be dereferenced both before and after the virtual address change.  The actual memory address, as per a previous question, is in the kernel half of memory, which is the same for every virtual address context.
+
+
+
+4. 	Whenever the kernel switches from one environment to another, it must ensure the old environment's registers are saved so they can be restored properly later. Why? Where does this happen?
+
+Answer. The old environment's registers are saved such that it can resume execution as if it were never interrupted, transparent to the user code. This occurs whenever the processor switches from user mode to kernel mode in the construction of the trap frame.
+
+
+Learnings from the lab:
+
+1.	The best takeaway was the part dealing with the bootstrapping of APs, in part A of the lab.
+2.	Better understanding of how copy on write is handled by the OS.
+3.	IPC, its use and implementation capable of sending and receiving pages making for a more efficient way of sharing data than just sharing a 32 bit value. The sieve program (user/primes.c) also showcases a fascinating example.

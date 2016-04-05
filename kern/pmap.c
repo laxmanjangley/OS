@@ -264,7 +264,10 @@ mem_init_mp(void)
 	//     Permissions: kernel RW, user NONE
 	//
 	// LAB 4: Your code here:
-
+	int i;
+	for(i=0;i<NCPU;i++){
+		boot_map_region(kern_pgdir, KSTACKTOP - KSTKSIZE - i * (KSTKSIZE + KSTKGAP), KSTKSIZE, PADDR(percpu_kstacks[i]), PTE_W);
+	}
 }
 
 // --------------------------------------------------------------
@@ -304,23 +307,37 @@ page_init(void)
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
   //
- 	page_free_list = NULL;
-  	uint32_t kpages = (((uint32_t) boot_alloc(0)) - KERNBASE) / PGSIZE;
-  	uint32_t io_hole = 96; // 384KB/4KB
+ // 	page_free_list = NULL;
+ //  	uint32_t kpages = (((uint32_t) boot_alloc(0)) - KERNBASE) / PGSIZE;
+ //  	uint32_t io_hole = 96; // 384KB/4KB
+	// size_t i;
+	// for (i = 0; i < npages; i++) {
+	// 	if (i == 0 || // First page reserved 
+	// 			// IO hole
+	// 			(npages_basemem <= i && i < npages_basemem + io_hole) ||
+	// 			// Pages used up by the kernel and allocated to hold a page dir and the pages array
+	// 			(npages_basemem + io_hole <= i && 
+	// 				i < npages_basemem + io_hole + kpages)
+	// 		) {
+	// 		pages[i].pp_ref = 1;
+	// 		continue;
+ //    	}
+	// 	pages[i].pp_ref = 0;
+	// 	pages[i].pp_link = page_free_list; // linked list
+	// 	page_free_list = &pages[i];
+	// }
 	size_t i;
-	for (i = 0; i < npages; i++) {
-		if (i == 0 || // First page reserved 
-				// IO hole
-				(npages_basemem <= i && i < npages_basemem + io_hole) ||
-				// Pages used up by the kernel and allocated to hold a page dir and the pages array
-				(npages_basemem + io_hole <= i && 
-					i < npages_basemem + io_hole + kpages)
-			) {
-			pages[i].pp_ref = 1;
-			continue;
-    	}
+	for (i = 1; i < MPENTRY_PADDR/PGSIZE; i++) {
 		pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list; // linked list
+		pages[i].pp_link = page_free_list;
+		page_free_list = &pages[i];
+	}
+	// int med = (int)ROUNDUP(kern_top - 0xf0000000, PGSIZE)/PGSIZE;
+	int med = (int)ROUNDUP(((char*)envs) + (sizeof(struct Env) * NENV) - 0xf0000000, PGSIZE)/PGSIZE;
+	// med = (int) percpu_kstacks[NCPU-1];
+	for (i = med; i < npages; i++) {
+		pages[i].pp_ref = 0;
+		pages[i].pp_link = page_free_list;
 		page_free_list = &pages[i];
 	}
 }
@@ -589,7 +606,14 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+	pa = ROUNDDOWN(pa, PGSIZE);
+	size = ROUNDUP(pa+size, PGSIZE);
+	size -= pa;
+	if(base+size>MMIOLIM) panic("Not enough memory");
+	boot_map_region(kern_pgdir, base, size, pa, PTE_PCD | PTE_PWT | PTE_W);
+	base += size;
+	return (void*) (base-size); 
+	//panic("mmio_map_region not implemented");
 }
 
 static uintptr_t user_mem_check_addr;
