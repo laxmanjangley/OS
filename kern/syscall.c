@@ -12,6 +12,11 @@
 #include <kern/console.h>
 #include <kern/sched.h>
 
+
+#define UTEMP2USTACK(addr)	((void*) (addr) + (USTACKTOP - PGSIZE) - UTEMP)
+#define UTEMP2			(UTEMP + PGSIZE)
+#define UTEMP3			(UTEMP2 + PGSIZE)
+
 // Print a string to the system console.
 // The string is exactly 'len' characters long.
 // Destroys the environment on memory errors.
@@ -55,8 +60,8 @@ sys_env_destroy(envid_t envid)
 
 	if ((r = envid2env(envid, &e, 1)) < 0)
 		return r;
-	if (e == curenv)
-		cprintf("[%08x] exiting gracefully\n", curenv->env_id);
+	if (e == curenv) cprintf("");
+		//cprintf("[%08x] exiting gracefully\n", curenv->env_id);
 	else
 		cprintf("[%08x] destroying %08x\n", curenv->env_id, e->env_id);
 	env_destroy(e);
@@ -342,6 +347,94 @@ sys_ipc_recv(void *dstva)
 	return 0;	
 }
 
+// char*
+// uva2ka(pde_t *pgdir, char *uva)
+// {
+//   pte_t *pte;
+
+//   pte = walkpgdir(pgdir, uva, 0);
+//   if((*pte & PTE_P) == 0)
+//     return 0;
+//   if((*pte & PTE_U) == 0)
+//     return 0;
+//   return (char*)KADDR(PTE_ADDR(*pte));
+// }
+
+// // Copy len bytes from p to user address va in page table pgdir.
+// // Most useful when pgdir is not the current page table.
+// // uva2ka ensures this only works for PTE_U pages.
+// int
+// copyout(pde_t *pgdir, uint va, void *p, uint len)
+// {
+//   char *buf, *pa0;
+//   uint n, va0;
+
+//   buf = (char*)p;
+//   while(len > 0){
+//     va0 = (uint)ROUNDDOWN(va, PGSIZE);
+//     pa0 = uva2ka(pgdir, (char*)va0);
+//     if(pa0 == 0)
+//       return -1;
+//     n = PGSIZE - (va - va0);
+//     if(n > len)
+//       n = len;
+//     memmove(pa0 + (va - va0), buf, n);
+//     len -= n;
+//     buf += n;
+//     va = va0 + PGSIZE;
+//   }
+//   return 0;
+// }
+
+static int
+sys_exec(char* progname, char** argv)
+{
+
+	// curenv->env_tf.tf_eip = eip;
+	// curenv->env_tf.tf_esp = esp;
+	uint8_t *binary;
+	unsigned int argc, ustack[20], sp = USTACKTOP;
+	pde_t *pgdir;
+	if(strcmp(progname,"factorial") == 0){
+		extern uint8_t ENV_PASTE3(_binary_obj_, user_factorial, _start)[];
+		binary = ENV_PASTE3(_binary_obj_,user_factorial, _start);
+	}
+	else if(strcmp(progname,"fibonacci") == 0){
+		extern uint8_t ENV_PASTE3(_binary_obj_, user_fibonacci, _start)[];
+		binary = ENV_PASTE3(_binary_obj_,user_fibonacci, _start);
+	}
+	else if(strcmp(progname,"echo") == 0){
+		extern uint8_t ENV_PASTE3(_binary_obj_, user_echo, _start)[];
+		binary = ENV_PASTE3(_binary_obj_,user_echo, _start);
+	}
+	else if(strcmp(progname,"help") == 0){
+		extern uint8_t ENV_PASTE3(_binary_obj_, user_help, _start)[];
+		binary = ENV_PASTE3(_binary_obj_,user_help, _start);
+	}
+	else if(strcmp(progname,"kill") == 0){
+		extern uint8_t ENV_PASTE3(_binary_obj_, user_kill, _start)[];
+		binary = ENV_PASTE3(_binary_obj_,user_kill, _start);
+	}
+	else{
+		cprintf("invalid binary\n");
+		return -1;
+	}	
+	for(argc = 0; argv[argc]; argc++) {
+		sp = (sp - (strlen(argv[argc]) + 1)) & ~3;
+		memcpy((void*) sp, argv[argc], strlen(argv[argc])+1);
+		ustack[2+argc] = sp;
+	}
+	ustack[2+argc] = 0;
+	ustack[0] = argc;
+	ustack[1] = sp - (argc+1)*4;  // argv pointer
+
+	sp -= (2+argc+1) * 4;
+	memcpy((void*) sp, ustack, (2+argc+1)*4);
+	curenv->env_tf.tf_esp = sp;
+	load_binary(curenv, (uint8_t*) binary);
+	return 0;
+}
+
 // Dispatches to the correct kernel function, passing the arguments.
 int32_t
 syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5)
@@ -390,6 +483,8 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 			return sys_ipc_recv((void*)a1);
 		case SYS_ipc_try_send:
 			return sys_ipc_try_send(a1, a2, (void*)a3, a4);
+		case SYS_exec:
+			return sys_exec((char*) a1, (char**) a2);
 		default:
 			x = -E_INVAL;
 	}

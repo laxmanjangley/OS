@@ -160,7 +160,7 @@ env_init_percpu(void)
 // Returns 0 on success, < 0 on error.  Errors include:
 //	-E_NO_MEM if page directory or table could not be allocated.
 //
-static int
+int
 env_setup_vm(struct Env *e)
 {
 	int i;
@@ -265,7 +265,7 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 	env_free_list = e->env_link;
 	*newenv_store = e;
 
-	cprintf("[%08x] new env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
+	//cprintf("[%08x] new env %08x\n", curenv ? curenv->env_id : 0, e->env_id);
 	return 0;
 }
 
@@ -317,7 +317,7 @@ region_alloc(struct Env *e, void *va, size_t len)
 // load_icode panics if it encounters problems.
 //  - How might load_icode fail?  What might be wrong with the given input?
 //
-static void
+void
 load_icode(struct Env *e, uint8_t *binary)
 {
 	// Hints:
@@ -366,13 +366,35 @@ load_icode(struct Env *e, uint8_t *binary)
         }
         ph++;
     }
-    lcr3(PADDR(kern_pgdir));
     e->env_tf.tf_eip = elf_header->e_entry;
 	// Now map one page for the program's initial stack
 	// at virtual address USTACKTOP - PGSIZE.
+
+    lcr3(PADDR(kern_pgdir));
     region_alloc(e, (void*)USTACKTOP - PGSIZE, PGSIZE);
 
 	// LAB 3: Your code here.
+}
+
+void load_binary(struct Env *e, uint8_t *binary)
+{
+	struct Elf* elf_header = (struct Elf*) binary;
+	if(elf_header->e_magic != ELF_MAGIC) panic("Bad elf!!");
+	struct Proghdr *ph = (struct Proghdr *) ((uint8_t*)binary + elf_header->e_phoff);
+	struct Proghdr *eph = ph + elf_header->e_phnum;
+
+    //load that env's page directory
+    
+    while(ph < eph) {
+        if (ph->p_type == ELF_PROG_LOAD) {
+            if (ph->p_filesz > ph->p_memsz) panic("load_icode: size in file > size in memory");           
+            region_alloc(e, (void *)ph->p_va, ph->p_memsz);
+            memcpy((void *)ph->p_va, binary + ph->p_offset, ph->p_filesz);
+            memset((void *)(ph->p_va + ph->p_filesz), 0, ph->p_memsz - ph->p_filesz);
+        }
+        ph++;
+    }
+    e->env_tf.tf_eip = elf_header->e_entry;
 }
 
 //

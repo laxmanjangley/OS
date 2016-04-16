@@ -111,3 +111,8 @@ sys_ipc_recv(void *dstva)
 	return syscall(SYS_ipc_recv, 1, (uint32_t)dstva, 0, 0, 0, 0);
 }
 
+int
+sys_exec(char* progname, char** argv)
+{
+	return syscall(SYS_exec, 0,(uint32_t) progname, (uint32_t) argv, 0, 0, 0);
+}
